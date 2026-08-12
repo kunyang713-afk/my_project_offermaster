@@ -11,21 +11,13 @@
 - 前端：`http://localhost:8080/` 静态页（注册/登录 → 贴简历 → 聊天 → 报告）。
 - 需配置真实 API Key（`DEEPSEEK_API_KEY` / `QIANWEN_API_KEY`）与 Milvus，不再提供 mock 兜底。
 
-## 说明文档
-- `docs/PHASE1_AI_BRAIN_WALKTHROUGH.md`：AI 大脑（ai-brain/app）编写思路与文件分层。
-- `docs/PHASE2_RAG_WALKTHROUGH.md`：阶段二 M5 RAG 知识库实现记录（Milvus + 千问 Embedding）。
-- `docs/design-decisions.md`：7 步产品/架构决策记录。
-- `docs/项目约定.md`：项目约定（修改必记录规范）。
-- `docs/变更记录.txt`：项目变更记录（修改原因/修改内容/解决了什么）。
-
 ## 目录
 ```
 backend-java/   Spring Boot 3.4 (JDK17)
 ai-brain/       FastAPI + LangGraph
 frontend/       静态前端（构建时复制进 Java static）
-RAG-database/   知识库原始文档（md）
+RAG-database/   知识库源数据（Java基础面试题.jsonl）
 docker-compose.yml
-docs/           decision 与 walkthrough 文档
 ```
 
 ### Python 侧分层（ai-brain/app/）
