@@ -1,0 +1,32 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: offermaster-backend
+  datasource:
+    url: jdbc:postgresql://localhost:5432/offermaster
+    username: offermaster
+    password: offermaster
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+app:
+  jwt:
+    secret: "offerMaster-mvp-secret-key-please-change-me-0123456789abcdef"
+    expiration-ms: 86400000
+  ai:
+    base-url: "http://localhost:8000"
+    timeout-ms: 120000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OfferMaster AI 面试官</title>
+  <style>
+    :root {
+      --wx-green: #07C160;
+      --wx-green-dark: #06AD56;
+      --wx-bubble-self: #95EC69;
+      --wx-bg: #EDEDED;
+      --wx-card: #FFFFFF;
+      --wx-text: #191919;
+      --wx-text-secondary: #888888;
+      --wx-border: #E5E5E5;
+      --wx-red: #FA5151;
+      --wx-title-bar: #2E2E2E;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      margin: 0;
+      background: var(--wx-bg);
+      color: var(--wx-text);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 顶部标题栏 */
+    .titlebar {
+      background: var(--wx-title-bar);
+      color: #fff;
+      padding: 14px 20px;
+      font-size: 16px;
+      font-weight: 500;
+      text-align: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.15);
+    }
+    .titlebar .logo {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      background: var(--wx-green);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -1px;
+    }
+
+    .wrap { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+    /* 卡片 */
+    .card {
+      background: var(--wx-card);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    }
+    .card h2 { margin: 0 0 16px; font-size: 16px; font-weight: 500; color: var(--wx-text); }
+
+    /* 问答对话框：占满视口，flex 列布局，输入区吸底 */
+    #chatCard {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 92px); /* 视口高 - titlebar(52px) - wrap 上下 padding(40px) */
+      margin-bottom: 0;           /* 覆盖 .card 的 16px，避免溢出视口 */
+    }
+    label { display: block; font-size: 13px; color: var(--wx-text-secondary); margin: 12px 0 6px; }
+    input, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--wx-border);
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fff;
+      color: var(--wx-text);
+      outline: none;
+      transition: border-color .2s;
+    }
+    input::placeholder, textarea::placeholder { color: #B2B2B2; }
+    input:focus, textarea:focus { border-color: var(--wx-green); }
+    textarea { min-height: 90px; resize: vertical; }
+
+    button {
+      background: var(--wx-green);
+      color: #fff;
+      border: 0;
+      padding: 8px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-family: inherit;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+    button:hover { background: var(--wx-green-dark); }
+    button:active { background: var(--wx-green-dark); }
+    button.secondary { background: #F5F5F5; color: var(--wx-text); }
+    button.secondary:hover { background: #EAEAEA; }
+
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row > input { flex: 1; min-width: 0; }
+    .hidden { display: none !important; }
+
+    /* 聊天区 */
+    .chat {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      background: var(--wx-bg);
+      border-radius: 8px;
+      padding: 16px 12px;
+      margin-bottom: 12px;
+    }
+    .msg-row {
+      display: flex;
+      align-items: flex-start;
+      margin: 10px 0;
+      gap: 8px;
+    }
+    .msg-row.user { flex-direction: row-reverse; }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #fff;
+      font-weight: 600;
+      user-select: none;
+    }
+    .msg-row.assistant .avatar { background: #2E2E2E; }
+    .msg-row.user .avatar { background: var(--wx-green); }
+    .bubble {
+      max-width: 72%;
+      padding: 10px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      line-height: 1.6;
+      position: relative;
+      word-break: break-word;
+      white-space: pre-wrap;
+      box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    }
+    .msg-row.assistant .bubble { background: #fff; }
+    .msg-row.user .bubble { background: var(--wx-bubble-self); }
+    .msg-row.assistant .bubble::before {
+      content: '';
+      position: absolute;
+      left: -5px;
+      top: 12px;
+      border: 5px solid transparent;
+      border-right-color: #fff;
+      border-left: 0;
+    }
+    .msg-row.user .bubble::after {
+      content: '';
+      position: absolute;
+      right: -5px;
+      top: 12px;
+      border: 5px solid transparent;
+      border-left-color: var(--wx-bubble-self);
+      border-right: 0;
+    }
+
+    .err { color: var(--wx-red); margin-top: 8px; font-size: 13px; min-height: 18px; }
+
+    /* 报告 */
+    .report-summary {
+      background: #F5F8F5;
+      border-left: 3px solid var(--wx-green);
+      padding: 12px 14px;
+      border-radius: 4px;
+      margin: 0 0 16px;
+    }
+    .report-empty { color: var(--wx-text-secondary); }
+    .report-item {
+      border: 1px solid var(--wx-border);
+      border-radius: 8px;
+      padding: 14px;
+      margin: 12px 0;
+      background: #FAFAFA;
+    }
+    .report-item .q { font-weight: 600; color: var(--wx-text); margin-bottom: 8px; }
+    .report-item .meta { color: var(--wx-text-secondary); font-size: 13px; margin: 4px 0; }
+    .report-item .meta strong { color: var(--wx-text); font-weight: 500; }
+    .report-item .tag {
+      display: inline-block;
+      background: var(--wx-green);
+      color: #fff;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      margin: 4px 0 8px;
+    }
+
+    /* 滚动条（微信风格细条） */
+    .chat::-webkit-scrollbar { width: 6px; }
+    .chat::-webkit-scrollbar-thumb { background: rgba(0,0,0,.18); border-radius: 3px; }
+    .chat::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="titlebar">
+    <span class="logo">O</span>
+    <span>OfferMaster AI 面试官</span>
+  </div>
+
+  <div class="wrap">
+    <div class="card" id="authCard">
+      <h2>登录 / 注册</h2>
+      <div class="row">
+        <input id="username" placeholder="用户名" autocomplete="off">
+        <input id="password" type="password" placeholder="密码">
+        <button onclick="register()">注册</button>
+        <button class="secondary" onclick="login()">登录</button>
+      </div>
+      <div class="err" id="authErr"></div>
+    </div>
+
+    <div class="card hidden" id="startCard">
+      <h2>开始面试</h2>
+      <label>简历（粘贴文本）</label>
+      <textarea id="resume" placeholder="粘贴候选人简历文本"></textarea>
+      <label>目标岗位</label>
+      <input id="job" placeholder="例如：Java 后端工程师">
+      <button onclick="startInterview()">开始面试</button>
+      <div class="err" id="startErr"></div>
+    </div>
+
+    <div class="card hidden" id="chatCard">
+      <h2>面试进行中</h2>
+      <div class="chat" id="chatBox"></div>
+      <div class="row">
+        <input id="answerInput" placeholder="输入回答，回车提交">
+        <button onclick="sendAnswer()">发送</button>
+        <button class="secondary hidden" id="retryBtn" onclick="retryAnswer()">重试</button>
+      </div>
+      <div class="err" id="chatErr"></div>
+    </div>
+
+    <div class="card hidden" id="reportCard">
+      <h2>面试诊断报告</h2>
+      <div id="reportBody"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://localhost:8080';
+    let token = localStorage.getItem('token') || null;
+    let sessionId = null;
+    let turn = 0;
+    let lastUserRow = null; // 最近一次用户气泡（流式失败时回滚用）
+    let streamingRow = null; // 正在逐 token 显示中的 AI 气泡（追问真流式）
+
+    function authHeaders() { return token ? { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' }; }
+
+    async function api(path, method, body) {
+      const res = await fetch(API + path, { method, headers: authHeaders(), body: body ? JSON.stringify(body) : undefined });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 || res.status === 403) {
+        logout('authErr', data.error || '登录已过期，请重新登录');
+        throw new Error('AUTH_EXPIRED');
+      }
+      if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      return data;
+    }
+
+    function logout(errId, msg) {
+      token = null;
+      sessionId = null;
+      localStorage.removeItem('token');
+      document.getElementById('authCard').classList.remove('hidden');
+      document.getElementById('startCard').classList.add('hidden');
+      document.getElementById('chatCard').classList.add('hidden');
+      if (msg) showErr(errId, msg);
+    }
+
+    function register() {
+      api('/api/auth/register', 'POST', { username: u(), password: p() })
+        .then(d => { token = d.token; localStorage.setItem('token', token); showAuthed(d.username); })
+        .catch(e => showErr('authErr', e.message));
+    }
+    function login() {
+      api('/api/auth/login', 'POST', { username: u(), password: p() })
+        .then(d => { token = d.token; localStorage.setItem('token', token); showAuthed(d.username); })
+        .catch(e => showErr('authErr', e.message));
+    }
+
+    function showAuthed(name) {
+      document.getElementById('authCard').classList.add('hidden');
+      document.getElementById('startCard').classList.remove('hidden');
+      document.getElementById('startCard').querySelectorAll('label')[0].textContent = '简历（粘贴文本）· 已登录：' + name;
+    }
+
+    function startInterview() {
+      const resume = document.getElementById('resume').value;
+      const job = document.getElementById('job').value;
+      streamPost('/api/interviews/stream/start', { resume, jobDescription: job }, 'startErr', {
+        onStage: d => setThinking(d.label || '正在准备面试…'),
+        onToken: d => { /* summarize 的摘要为内部处理，不展示 token */ },
+        onResult: d => {
+          removeThinking();
+          sessionId = d.sessionId;
+          turn = 0;
+          document.getElementById('startCard').classList.add('hidden');
+          document.getElementById('chatCard').classList.remove('hidden');
+          typeMsg('assistant', d.question); // 出题为结构化输出：打字机渲染
+        },
+        onError: d => { removeThinking(); showErr('startErr', d.detail || '面试启动失败'); }
+      }).catch(e => showErr('startErr', e.message));
+    }
+
+    let lastAnswer = null; // 最近一次回答内容（网络中断重试用）
+
+    function sendAnswer() {
+      const input = document.getElementById('answerInput');
+      const answer = input.value.trim();
+      if (!answer) return;
+      turn += 1;
+      lastAnswer = answer;
+      lastUserRow = addMsg('user', answer);
+      input.value = '';
+      doAnswerStream(turn, answer);
+    }
+
+    function retryAnswer() {
+      if (!lastAnswer) return;
+      doAnswerStream(turn, lastAnswer);
+    }
+
+    function doAnswerStream(currentTurn, answer) {
+      showErr('chatErr', '');
+      streamPost('/api/interviews/' + sessionId + '/answer/stream', { turnId: String(currentTurn), answer }, 'chatErr', {
+        onStage: d => { if (!streamingRow) setThinking(d.label || 'AI 正在思考…'); },
+        onToken: d => onAnswerToken(d),
+        onResult: d => {
+          removeThinking();
+          lastUserRow = null;
+          const retryBtn = document.getElementById('retryBtn');
+          if (retryBtn) retryBtn.classList.add('hidden');
+          if (d.status === 'done') {
+            if (streamingRow) { streamingRow.remove(); streamingRow = null; }
+            showReport(d.report); // 终局报告：summary 打字机渲染
+          } else if (streamingRow) {
+            // 已有追问 token 流气泡：用完整文本覆盖，确保无 token 遗漏
+            streamingRow.querySelector('.bubble').textContent = d.question;
+            streamingRow = null;
+          } else {
+            typeMsg('assistant', d.question); // 出题为结构化输出：打字机渲染
+          }
+        },
+        onError: d => answerError(d.detail || '提交失败')
+      }).catch(e => answerError(e.message));
+    }
+
+    function onAnswerToken(d) {
+      // 仅追问节点真逐 token 流式展示；summarize/compress_history 为内部处理，token 静默。
+      if (d.node !== 'follow_up') return;
+      removeThinking();
+      if (!streamingRow) streamingRow = addMsg('assistant', '');
+      const bubble = streamingRow.querySelector('.bubble');
+      bubble.textContent += d.token;
+      const box = document.getElementById('chatBox');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function answerError(msg) {
+      removeThinking();
+      if (streamingRow) { streamingRow.remove(); streamingRow = null; }
+      // 不回滚 turn、不删除用户气泡：服务端可能已处理完成（网络中断仅影响响应接收）。
+      // 提示用户点击重试，重试时用相同 turnId 走幂等逻辑恢复状态。
+      showErr('chatErr', msg + '（点击「重试」恢复）');
+      const retryBtn = document.getElementById('retryBtn');
+      if (retryBtn) retryBtn.classList.remove('hidden');
+    }
+
+    // ---------- SSE 流式消费（fetch + ReadableStream） ----------
+
+    function setThinking(label) {
+      const box = document.getElementById('chatBox');
+      let row = document.getElementById('thinkingRow');
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'msg-row assistant';
+        row.id = 'thinkingRow';
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = 'AI';
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.id = 'thinkingBubble';
+        row.appendChild(avatar);
+        row.appendChild(bubble);
+        box.appendChild(row);
+      }
+      document.getElementById('thinkingBubble').textContent = label;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function removeThinking() {
+      const row = document.getElementById('thinkingRow');
+      if (row) row.remove();
+    }
+
+    function parseSseFrame(frame, handlers) {
+      let eventType = 'message', dataStr = '';
+      frame.split('\n').forEach(line => {
+        if (line.startsWith('event:')) eventType = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+      });
+      if (!dataStr) return;
+      let data;
+      try { data = JSON.parse(dataStr); } catch (e) { return; }
+      if (eventType === 'stage') handlers.onStage(data);
+      else if (eventType === 'token') handlers.onToken(data);
+      else if (eventType === 'result') handlers.onResult(data);
+      else if (eventType === 'error') handlers.onError(data);
+    }
+
+    async function streamPost(path, body, errId, handlers) {
+      const res = await fetch(API + path, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) });
+      if (res.status === 401 || res.status === 403) {
+        let errText = '登录已过期，请重新登录';
+        try { const d = await res.json(); errText = d.error || errText; } catch (e) {}
+        logout(errId, errText);
+        throw new Error('AUTH_EXPIRED');
+      }
+      if (!res.ok) {
+        let errText = 'HTTP ' + res.status;
+        try { const d = await res.json(); errText = d.error || errText; } catch (e) {}
+        throw new Error(errText);
+      }
+      if (!res.body) throw new Error('当前浏览器不支持流式响应');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          parseSseFrame(frame, handlers);
+        }
+      }
+    }
+
+    // 打字机渲染：结构化输出（出题/报告）整体返回后逐字渐进显示，模拟流式效果。
+    function typeMsg(role, text) {
+      const row = addMsg(role, '');
+      const bubble = row.querySelector('.bubble');
+      let i = 0;
+      const timer = setInterval(() => {
+        i = Math.min(text.length, i + 2);
+        bubble.textContent = text.slice(0, i);
+        const box = document.getElementById('chatBox');
+        box.scrollTop = box.scrollHeight;
+        if (i >= text.length) clearInterval(timer);
+      }, 25);
+      return row;
+    }
+
+    function showReport(report) {
+      document.getElementById('chatCard').classList.add('hidden');
+      document.getElementById('reportCard').classList.remove('hidden');
+      const body = document.getElementById('reportBody');
+      body.innerHTML = '<p class="report-summary"><strong>整体结论：</strong><span id="reportTyping"></span></p>';
+      const span = document.getElementById('reportTyping');
+      const summary = report.summary || '';
+      let i = 0;
+      const timer = setInterval(() => {
+        i = Math.min(summary.length, i + 4);
+        span.textContent = summary.slice(0, i);
+        if (i >= summary.length) {
+          clearInterval(timer);
+          renderReportItems(report.wrong_questions || []);
+        }
+      }, 25);
+    }
+
+    function renderReportItems(wrong) {
+      const body = document.getElementById('reportBody');
+      let html = '';
+      if (!wrong.length) { html += '<p class="report-empty">未发现明显错误。</p>'; }
+      wrong.forEach(w => {
+        html += '<div class="report-item">' +
+          '<div class="q">' + w.question_text + '</div>' +
+          '<div class="meta"><strong>你的回答：</strong>' + w.user_answer + '</div>' +
+          '<span class="tag">' + w.kind + '</span>' +
+          (w.missing_keys && w.missing_keys.length ? '<div class="meta"><strong>未覆盖：</strong>' + w.missing_keys.join(', ') + '</div>' : '') +
+          (w.wrong_points && w.wrong_points.length ? '<div class="meta"><strong>错误点：</strong>' + w.wrong_points.join('; ') + '</div>' : '') +
+          (w.suggestion ? '<div class="meta"><strong>建议：</strong>' + w.suggestion + '</div>' : '') +
+        '</div>';
+      });
+      body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function addMsg(role, text) {
+      const box = document.getElementById('chatBox');
+      const row = document.createElement('div');
+      row.className = 'msg-row ' + role;
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = role === 'assistant' ? 'AI' : '我';
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = text;
+      if (role === 'assistant') {
+        row.appendChild(avatar);
+        row.appendChild(bubble);
+      } else {
+        row.appendChild(bubble);
+        row.appendChild(avatar);
+      }
+      box.appendChild(row);
+      box.scrollTop = box.scrollHeight;
+      return row;
+    }
+    function showErr(id, msg) { document.getElementById(id).textContent = msg; }
+    function u() { return document.getElementById('username').value.trim(); }
+    function p() { return document.getElementById('password').value.trim(); }
+    document.getElementById('answerInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendAnswer(); });
+    if (token) showAuthed('已登录');
+  </script>
+</body>
+</html>

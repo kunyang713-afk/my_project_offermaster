@@ -1,0 +1,21 @@
+# secrets / local
+.env
+
+# IDE / editor
+.idea/
+.trae/
+
+# builds
+target/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# logs
+*.log
+app.log
+app.err.log
+
+# knowledge base source data (private)
+RAG-database/

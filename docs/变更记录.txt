@@ -1,0 +1,185 @@
+================================================================
+                        项目变更记录
+================================================================
+用途：记录项目每一次修改的背景、内容与效果。
+规则：
+  1. 每次修改项目后，必须在此文件【末尾】追加一条记录。
+  2. 条目编号递增（#001 起），不重复、不覆盖。
+  3. 一次多文件的改动记作一条记录。
+  4. 模板见下，必填字段：修改原因 / 修改内容 / 解决了什么。
+
+----------------------------------------------------------------
+变更 #N  日期：YYYY-MM-DD HH:mm
+【修改原因】……
+【修改内容】……
+【解决了什么】……
+【涉及文件】……
+【验证结果】……
+----------------------------------------------------------------
+
+================================================================
+变更记录
+================================================================
+
+----------------------------------------------------------------
+变更 #001  日期：2026-08-12
+【修改原因】建立「修改必记录」项目约定，保证项目变更可追溯、可复盘、可交接。
+【修改内容】新增约定文档 docs/项目约定.md（含适用范围、必填字段、记录规则与条目模板）；新增本变更记录文件 docs/变更记录.txt 并写入初始条目；同步将约定写入项目记忆 project_memory.md；README.md 说明文档章节补充两条索引。
+【解决什么】确立项目级变更记录规范，今后每次修改代码/配置/文档均有据可查。
+【涉及文件】docs/项目约定.md（新增）、docs/变更记录.txt（新增）、README.md（更新）、项目记忆 project_memory.md（新增）
+【验证结果】四文件内容复查通过：约定文档字段/模板齐全，变更记录格式正确，README 索引已更新，项目记忆已写入约定。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #002  日期：2026-08-12
+【修改原因】阶段二 M6「历史摘要压缩节点（防上下文膨胀）」落地：`final_report` 以全量 transcript 喂 LLM，长面试（3~5 题 × 追问）下 token 可达数万，存在报告质量下降/超限风险。
+【修改内容】新增 `compress_history` 节点：每道主主题结束（`next_question` 判定需换题）时，把该主题对话经 `llm.compress_history()` 增量合并进 `state.conversation_summary`，并以 `{"__replace__": []}` 整体裁剪 `state.messages`；`messages` reducer 由 `operator.add` 改为自定义 `reduce_messages`（普通 list 追加 / 替换信号裁剪双语义）；最后一题不压缩，`final_report` 改用「历史摘要 + 最近一题完整对话 + 全量 assessments」生成报告。`graph.py` 注册新节点（Command 路由，无新边）。README 能力/验收、design-decisions M6 落地注记同步更新。
+【解决了什么】面试 State 的 messages 严格有界（只保留当前题窗口），`conversation_summary` 增量记录历史；终局报告不再吃全量 transcript，从根上控制喂给 LLM 的 token 量，防上下文膨胀；Java 协议与消息落库（Java 侧权威）不受影响。
+【涉及文件】ai-brain/app/state.py、ai-brain/app/llm.py、ai-brain/app/nodes.py、ai-brain/app/graph.py、README.md、docs/design-decisions.md
+【验证结果】py_compile 通过；临时冒烟脚本（mock LLM/检索 + MemorySaver）验证：2 题流程换题后 summary 非空、messages 裁剪为只剩新题，收尾时 messages 保留最后一题完整轮次、final_report 正常产出；IDE 诊断无告警。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #003  日期：2026-08-12
+【修改原因】M6 压缩触发策略由「每轮自动触发（换主题即压缩）」调整为「上下文空间溢出触发」：每轮压缩造成无谓的 LLM 调用与摘要覆盖，短面试本不需要压缩；按预算阈值按需触发更符合「防上下文膨胀」本意。
+【修改内容】`next_question` 改为溢出判定路由：`messages` 总字符数 > `history_max_chars`（新增配置，默认 8000，config/.env 可调）才 goto `compress_history`，否则直接 generate_question / final_report（不压缩）。`compress_history` 按新状态字段 `topic_start`（`generate_question` 出题前写入）划分「旧主题 = messages[:topic_start]」压缩进 `conversation_summary`、「最近主题 = messages[topic_start:]」原样保留并裁剪 messages；压缩后按是否问完路由 final_report / generate_question；`topic_start == 0`（单主题即超预算）时整体压缩清空作兜底。README / design-decisions 的 M6 描述同步改为溢出触发语义。
+【解决了什么】未超预算的面试全程零压缩零额外 LLM 调用；溢出时只压缩旧主题、保留最近主题原文供报告引用；State 与 final_report 消费的上下文仍受预算约束，防膨胀目的不变。
+【涉及文件】ai-brain/app/config.py（新增 history_max_chars）、ai-brain/app/state.py（新增 topic_start）、ai-brain/app/nodes.py（next_question/compress_history/generate_question 改造）、README.md、docs/design-decisions.md
+【验证结果】py_compile 通过；冒烟脚本（mock LLM/检索 + MemorySaver）覆盖两场景：不溢出时无压缩调用、messages 全量保留、报告正常；溢出时旧主题入 summary、messages 只留最近主题、topic_start 归零、报告正常；IDE 诊断无告警。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #004  日期：2026-08-12
+【修改原因】对 M6 历史摘要压缩（变更 #002）做真实环境集成验证（Docker + 真实 DeepSeek/千问 Key + Milvus 知识库）。
+【修改内容】重建 python-app 镜像（`docker compose up -d --build python-app`）后，经 FastAPI HTTP 接口驱动两轮完整面试：
+1) 5 主题完整面试（start→5 轮 answer→report）；
+2) 断线恢复会话（start+1 轮 answer → `docker compose restart python-app` → 同一 SID 续跑至报告）。
+并以 `app.get_state(thread_id=...)` 检查两场会话的最终 checkpoint。
+【解决了什么】确认 M6 在真实链路下生效：5 主题 10 条对话的会话最终 checkpoint 中 messages 仅剩 2 条（最后一题完整轮次），前 4 主题被增量压缩进 conversation_summary（含题目/回答要点/质量结论/追问情况/整体趋势）；assessments 全量保留（5/6 条）供报告使用；main_question_count 计数正确；断线重启后续跑无缝（从追问继续至完成），最终报告正常产出。
+【涉及文件】无代码改动（仅验证）。临时验证脚本已删除；python-app 镜像已重建为新代码。
+【验证结果】两场会话均达成：messages_len=2、conversation_summary 非空、assessments 全量、final_report 生成；`/health` 正常；Java 侧协议无变更。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #005  日期：2026-08-12
+【修改原因】浏览器携带过期/失效 token 点击「开始面试」时，Spring Security 对未认证请求返回 403 且无 JSON 错误体（前端只显示 "HTTP 403"），且页面加载时仅凭 localStorage 存在 token 即显示"已登录"、不校验有效性，鉴权失效体验差。
+【修改内容】1) 后端 `SecurityConfig` 新增 `exceptionHandling` 的 `AuthenticationEntryPoint`：未认证/无效 token 统一返回 401 + `{"error":"未登录或登录已过期"}`（替代默认 403）；2) 前端 `api()` 捕获 401/403 时调用新增 `logout()`——清空 token/sessionId/localStorage 并切回登录卡片、提示重新登录；3) 前端源文件 `frontend/index.html` 与后端静态 `backend-java/src/main/resources/static/index.html` 同步（保证源码与运行版一致）。
+【解决了什么】失效 token 场景由"403 裸报错"变为"401 + 明确错误信息 + 自动登出回到登录页"；语义正确（未认证=401），前端可自动恢复登录态，避免用户困惑；同时前端源/静态两份文件保持一致，避免后续构建覆盖丢失该修复。
+【涉及文件】backend-java/src/main/java/com/offermaster/config/SecurityConfig.java、frontend/index.html、backend-java/src/main/resources/static/index.html
+【验证结果】重新 mvn package 并重启后端后实测：无 token → 401 + JSON 错误体；伪造 token → 401 + JSON 错误体；新注册有效 token → 200 正常返回首题；页面同时含微信风格与 401/403 自动登出逻辑。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #006  日期：2026-08-12 23:50
+【修改原因】前端界面美化需求：将原 MVP 灰白简约风格重构为微信风格，提升视觉一致性与体验。
+【修改内容】重写 frontend/index.html 样式与部分结构（功能逻辑保持不变）：
+1) 引入微信设计令牌（--wx-green #07C160 / --wx-bubble-self #95EC69 / --wx-bg #EDEDED / --wx-title-bar #2E2E2E 等）；
+2) 新增顶部吸顶标题栏（深色 + 绿色圆角 logo + 标题）；
+3) 卡片、输入框、按钮统一微信圆角与配色，按钮 hover/active 态、输入框聚焦绿色描边；
+4) 聊天区改为微信气泡布局：AI 左侧白色气泡 + 深色头像，用户右侧 #95EC69 气泡 + 绿色头像，气泡带指向三角、细滚动条；
+5) 报告区改为卡片式 report-item + 绿色 tag + 左侧绿色边框的整体结论摘要条；
+6) addMsg 由"AI：/我：文本前缀"改为头像+气泡结构，showReport 内联样式改为 class。
+【解决了什么】前端从纯功能型 MVP 升级为贴近微信视觉语言的界面，聊天气泡、配色、标题栏、报告卡片均符合微信风格，同时保留全部交互逻辑（注册/登录、开始面试、问答轮询、报告展示）与原有 DOM id，JS 接口零变更。
+【涉及文件】frontend/index.html
+【验证结果】静态自查：所有原 id（authCard/startCard/chatCard/reportCard、username/password/resume/job/answerInput/chatBox/reportBody 等）保留；JS 函数（register/login/startInterview/sendAnswer/showReport/addMsg/showErr）逻辑不变；startCard 首个 label 仍为简历项以兼容 showAuthed 的 querySelectorAll('label')[0]。运行时验证待 Java 后端启动后访问 http://localhost:8080/ 实测。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #007  日期：2026-08-12
+【修改原因】为 ai-brain（FastAPI + LangGraph + LangChain）引入 LangSmith 云端链路追踪，便于调试 LLM 调用与 LangGraph 图执行、分析延迟与 token 消耗。
+【修改内容】1) `app/config.py` 新增 Settings 字段 `langsmith_tracing` / `langsmith_endpoint` / `langsmith_api_key`，并在 `settings` 实例化后把三者同步进 `os.environ`（pydantic-settings 只填充字段、不会写入环境变量，而 LangSmith SDK 直接读取 `os.environ`，不同步则本地启动追踪不生效）；2) `ai-brain/.env` 与根目录 `.env` 均追加 `LANGSMITH_TRACING=true`、`LANGSMITH_ENDPOINT=https://api.smith.langchain.com`、`LANGSMITH_API_KEY=...`；3) `docker-compose.yml` 的 python-app 服务 `environment:` 新增 `LANGSMITH_TRACING` / `LANGSMITH_ENDPOINT` / `LANGSMITH_API_KEY`（`${VAR:-默认}` 透传，未配置时默认关闭追踪）；4) `requirements.txt` 显式声明 `langsmith>=0.2`（此前为 langchain-core 传递依赖）。
+【解决了什么】本地与 Docker 两种运行方式下 LLM 调用与 LangGraph 节点执行均会上报至 LangSmith 云端，可在 https://api.smith.langchain.com 按会话/节点查看 trace、输入输出与耗时；未配置 Key 时行为与改动前完全一致（默认关闭），`.env` 已被 gitignore，Key 不入库。
+【涉及文件】ai-brain/app/config.py、ai-brain/.env、.env（根目录）、docker-compose.yml、ai-brain/requirements.txt
+【验证结果】`python -c "from app.config import settings; import os; print(os.environ['LANGSMITH_TRACING'], os.environ['LANGSMITH_API_KEY'][:6])"` 输出 `true lsv2p_`，环境变量同步生效；uvicorn 启动 `/health` 正常（详见验证步骤）。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #007  日期：2026-08-12
+【修改原因】变更 #006 引入 LangSmith 后，前端正常交流但在 LangSmith 网站看不到 trace——原因：前端经 Java 后端调用 `http://localhost:8000` 走的是 docker 容器 `offermaster-python`，而该容器仍是旧镜像且创建于 compose 环境变量注入之前，容器内无任何 `LANGSMITH_*` 环境变量，故容器流量不上报；此前仅在本地 uvicorn（读取 `.env`）跑的测试（ls-smoke-001 等）可见。
+【修改内容】`docker compose up -d --build python-app` 重建镜像并重建容器：新镜像含 config.py 的 LangSmith 同步逻辑与 `langsmith>=0.2` 显式依赖（容器内实际安装 langsmith-0.10.18），compose 从根目录 `.env` 注入 `LANGSMITH_TRACING=true` / `LANGSMITH_ENDPOINT` / `LANGSMITH_API_KEY` 三变量。
+【解决了什么】容器链路（Java 后端 → python-app:8000）的每次 LLM 调用与 LangGraph 节点执行均上报至 LangSmith 的 `default` 项目；thread_id 为 Java 侧会话号（存于 run 的 `extra.metadata.thread_id`），前端真实会话现可在 LangSmith 看到。
+【涉及文件】无代码/配置改动（仅容器重建与部署验证）；docker-compose.yml 的环境变量注入为 #006 已记录内容
+【验证结果】`docker inspect offermaster-python` 确认容器内三个 LANGSMITH_* 变量就位；容器健康检查通过；POST `http://localhost:8000/ai/interviews/ls-docker-smoke-001/start` 正常出题；经 langsmith API 查询确认 `default` 项目最新 run 的 `thread_id=ls-docker-smoke-001`，包含 generate_question→ChatOpenAI→wait_answer 完整链路；容器日志无 langsmith/error 输出。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #008  日期：2026-08-12
+【修改原因】M6 压缩改为「上下文空间溢出触发」（#007）后，`final_report` 的 LLM 提示词仍写死「历史摘要 + 最近一题完整对话」语义，与实际情况不符：全程未溢出时 summary 为空、messages 是全部主题完整对话，LLM 会被「最近一题」措辞误导而忽略其余内容。
+【修改内容】仅改 `ai-brain/app/llm.py` 两处提示词：1) `final_report` 改为自适应措辞——`summary.strip()` 为空时输出「完整对话记录（覆盖全部题目与回答）」，非空时输出「历史对话摘要 + 最近主题完整对话」两段，wrong_questions 提取规则随描述联动；函数签名、`nodes.final_report` 调用、FinalReport schema 不变。2) `compress_history` 提示词由「新结束的一道面试主题对话」通用化为「新压缩的主题对话（可能包含一道或多道题目）」（溢出触发下 old 可能含多个从未压缩过的主题）。`compress_history` 兜底分支维持「全量压缩清空」（用户已确认）。README / design-decisions 的 M6 描述补充自适应说明。
+【解决了什么】终局报告在「未压缩（完整对话）」与「已压缩（摘要+最近主题）」两种形态下提示词语义准确，报告质量不受压缩策略切换影响；其余节点（evaluate/follow_up/generate_question/wait_answer）经审计均无需改动。
+【涉及文件】ai-brain/app/llm.py（final_report、compress_history 提示词）、README.md、docs/design-decisions.md
+【验证结果】py_compile 通过；冒烟（mock LLM 捕获 prompt）：summary="" 时 prompt 含「完整对话记录」且不含「历史对话摘要」，summary="xx" 时含「历史对话摘要」「最近主题完整对话」；完整 3 主题面试（混合溢出/不溢出）报告正常产出、schema 不变；IDE 诊断无告警。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #009  日期：2026-08-12 23:30
+【修改原因】面试全链路（浏览器→Java→AI-brain）此前为阻塞式 HTTP 调用，用户提交回答后需等待 LLM 全部跑完才能看到下一题/报告，期间页面无任何反馈，体验差。需引入 SSE 流式返回，让用户实时看到 AI 各阶段进度（正在总结简历/正在生成题目/正在评估回答…）与最终结果。
+【修改内容】
+1) AI-brain 侧（`ai-brain/app/graph.py`、`ai-brain/app/api.py`、`ai-brain/app/checkpointer.py`）：
+   - `checkpointer.py` 新增 `get_async_checkpointer()` 返回 `AsyncPostgresSaver`（同步 `PostgresSaver` 不实现 async 接口，`astream_events`/`aget_state` 必须搭配异步 checkpointer）；与同步 checkpointer 共享同一组 Postgres checkpoint 表，thread_id 状态互通。
+   - `graph.py` 新增懒加载 `_async_app`（`builder.compile(checkpointer=AsyncPostgresSaver)`）、`NODE_LABELS`（7 个 LLM 重节点的中文进度文案）、`_aiter_events()`（过滤 `on_chain_start` 事件仅产出有展示价值的节点）、`stream_start()` / `stream_answer()`（async generator，产出 stage/result 事件，流结束后用 `aget_state` 读取最终结果）。
+   - `api.py` 新增 `/ai/interviews/{id}/start/stream`、`/ai/interviews/{id}/answer/stream` 两个 SSE 端点（`StreamingResponse` + `text/event-stream`，手写 `event: type\ndata: json\n\n` 帧，不引入 sse-starlette）；Windows 本地开发需切换 `WindowsSelectorEventLoopPolicy`（psycopg 异步不兼容 ProactorEventLoop），Linux/Docker 无此问题。
+   - 原有阻塞端点 `/start`、`/answer` 零改动，保留兼容。
+2) Java 侧（`AiStreamClient.java`、`InterviewService.java`、`InterviewController.java`、`InterviewSessionRepository.java`、`MessageRepository.java`、`ReportRepository.java`、`GlobalExceptionHandler.java`）：
+   - 新增 `AiStreamClient`：JDK `HttpClient`（强制 `HTTP_1_1`，避免默认 HTTP/2 Upgrade 导致 uvicorn 返回 422）异步消费 AI-brain SSE 流，按行解析 `event:`/`data:` 帧并回调 `onEvent(eventType, jsonNode)`；非 200 响应读取 body 打印日志并回 error 事件；流结束发 `done` 事件 + `emitter.complete()`。
+   - `InterviewService` 新增 `startStream()` / `answerStream()`：与阻塞路径业务语义一致（脱敏/建会话/落消息/落报告/会话 COMPLETED），但用 `CompletableFuture` 门闩替代同步块实现跨线程串行化（SseEmitter 在异步线程完成）；不启用 `@Transactional`（事务与请求线程生命周期冲突），`@Modifying` 查询用 `TransactionTemplate` 编程式事务包裹；失败时回删 USER 消息保证同 turnId 可重试。
+   - 三个 Repository 新增投影查询（`@Query` 显式 select 单列），避免无外层事务时 Hibernate 物化 `@Lob` 字段报 `Unable to access lob stream`：`InterviewSessionRepository.findStatusByIdAndUserId` / `updateStatus`、`ReportRepository.findSummaryBySessionId`、`MessageRepository.findLastContentBySessionIdAndRole`（native SQL）。
+   - `InterviewController` 新增 `POST /api/interviews/stream/start`、`POST /api/interviews/{id}/answer/stream`（`produces = TEXT_EVENT_STREAM_VALUE`，`SseEmitter(0L)` 永不超时）。原有阻塞端点保留。
+   - `GlobalExceptionHandler` 新增 `log.error("Unhandled exception", ex)` 打印堆栈（便于排障）。
+3) 前端（`frontend/index.html` + `backend-java/src/main/resources/static/index.html` 同步）：
+   - 新增 `streamPost(path, body, {onStage, onResult, onError})`：fetch POST + `ReadableStream` 逐帧解析（按 `\n\n` 切分，提取 `event:`/`data:` 字段）；非 200 复用现有错误处理（含 401/403 → `logout()`）。
+   - `startInterview()` / `sendAnswer()` 改调流式端点；`onStage` 渲染「AI 正在…」指示气泡（`setThinking(label)` / `removeThinking()`），`onResult` 替换为正式问题/报告；失败时 `answerError()` 回滚用户气泡 + turn 计数。
+【解决了什么】面试全链路 SSE 流式返回打通：浏览器 → Java（SseEmitter 代理）→ AI-brain（LangGraph astream_events），用户提交后实时看到各阶段进度文案与最终结果；原有阻塞接口与业务语义（脱敏/落库/幂等/串行化/IDOR 校验）零变化；LLM 层（llm.py/nodes.py/state.py/schemas.py）零改动。
+【涉及文件】ai-brain/app/graph.py、ai-brain/app/api.py、ai-brain/app/checkpointer.py；backend-java/.../service/AiStreamClient.java（新增）、InterviewService.java、controller/InterviewController.java、controller/GlobalExceptionHandler.java、repository/InterviewSessionRepository.java、repository/MessageRepository.java、repository/ReportRepository.java；frontend/index.html、backend-java/src/main/resources/static/index.html；docs/变更记录.txt
+【验证结果】
+- Python 侧：py_compile 通过；mock LLM 冒烟（astream_events + aget_state + AsyncPostgresSaver）验证 start→answer→final_report 全流程 stage/result 事件正确；httpx ASGITransport 验证 SSE 帧格式（event:/data:/空行）正确。
+- Docker 容器：重建 python-app 镜像后，curl 直连 AI-brain SSE 端点验证真实 LLM 链路（stage×3 → result → 连接关闭）正常。
+- Java 全链路：mvn package 通过；带 JWT 请求 Java SSE 端点验证完整 5 题面试流程（start → 5 轮 answer → final_report）：stage（summarize/plan_focus/generate_question/evaluate/follow_up/final_report）→ result（need_answer/done）→ done 全部正确透传；终局报告内容完整（summary + 5 道 wrong_questions）；幂等重发/会话 COMPLETED/消息落库均正常。
+- 解决的关键问题：① 同步 PostgresSaver 无 async 接口 → 新增 AsyncPostgresSaver；② Windows psycopg 异步需 Selector 事件循环 → api.py 入口设置策略；③ JDK HttpClient 默认 HTTP/2 Upgrade 导致 uvicorn 422 → 强制 HTTP_1_1；④ 无外层事务时 Hibernate @Lob 物化报错 → Repository 改用显式 @Query 投影；⑤ @Modifying 查询需事务 → TransactionTemplate 编程式事务。
+----------------------------------------------------------------
+
+变更 #010  日期：2026-08-12
+【修改原因】用户要求把问答对话框搞大一点，最好直接占满屏幕，提升面试交互时的可视面积。
+【修改内容】仅改前端样式（`frontend/index.html` 与 `backend-java/src/main/resources/static/index.html` 同步修改，`backend-java/target/classes/static/index.html` 为编译产物已自动同步）：
+1) `.wrap` 的 `max-width` 由 860px → 1400px，整页内容区居中加宽。
+2) 新增 `#chatCard` 规则：`display: flex; flex-direction: column; height: calc(100vh - 92px); margin-bottom: 0`，让问答对话框占满视口剩余空间（减去顶部 titlebar 约 52px + .wrap 上下 padding 40px），并覆盖 .card 默认的 margin-bottom: 16px 避免溢出视口。
+3) `.chat` 去掉 `max-height: 420px`，改为 `flex: 1; min-height: 0`，让对话消息区自适应撑满 #chatCard 中除标题/输入区/错误提示外的全部剩余高度，保留 overflow-y: auto 内部滚动。
+4) 输入区 `.row` 不改样式，借助 #chatCard 的 flex 列布局自然吸底（#chatBox 独立滚动，输入区不随消息滚动）。
+【解决了什么】问答对话区从固定 420px 高、860px 宽的小窗口，变为占满视口剩余空间、输入区吸底的大对话框，对话消息区随窗口大小自适应高度，提升面试交互体验；其他卡片（登录/开始面试/报告）布局不受影响。
+【涉及文件】frontend/index.html、backend-java/src/main/resources/static/index.html、backend-java/target/classes/static/index.html（编译产物自动同步）、docs/变更记录.txt
+【验证结果】代码修改完成；待启动后端访问 http://localhost:8080 验证：登录 → 开始面试后 #chatCard 应占满视口（顶部保留 titlebar），对话区可内部滚动，输入框固定底部，调整窗口大小布局自适应；其他卡片（登录/开始面试/报告）布局未被破坏。
+----------------------------------------------------------------
+
+变更 #011  日期：2026-08-12
+【修改原因】用户反馈「/ask 前端好像并没有 stream 那种流式返回啊，ai 回复是直接蹦完的」——#009 仅推送阶段进度（stage）+ 最终结果（result），AI 文本整体一次性出现，没有逐字/逐 token 的流式观感。经与用户确认选择「真流式 + 打字机」混合方案：LLM 生成过程按 token 真流式推送，结构化整体返回（出题/报告）用前端打字机逐字渐进渲染。
+【修改内容】
+1) AI-brain 侧：
+   - `ai-brain/app/llm.py`：三个非结构化 LLM 函数（`summarize` / `generate_followup` / 历史压缩）给 chat 调用加 `.with_config({"tags": ["stream:summarize"]})` / `["stream:follow_up"]` / `["stream:compress_history"]`，tags 沿调用链传播到 `on_chat_model_stream` 事件；结构化函数（plan_focus/generate_question/evaluate/final_report）不加 tag，保持整体返回 + 前端打字机。
+   - `ai-brain/app/graph.py`：`_aiter_events` 在原有 `on_chain_start`（stage）基础上，新增监听 `on_chat_model_stream` 事件，通过事件 tags 匹配 `stream:` 前缀产出 `{"type": "token", "data": {"node": <节点名>, "token": <增量文本>}}` 事件（从 chunk.content 提取，兼容 str/非 str 类型静默跳过）。
+2) Java 侧（`InterviewService.java`）：`handleStartEvent` / `handleAnswerEvent` 新增 `token` 事件类型分支，原样转发 `forward(emitter, "token", payload)`，实现 Java 代理层对 token 事件的无损透传。
+3) 前端（`frontend/index.html` + `backend-java/src/main/resources/static/index.html` 同步）：
+   - `parseSseFrame` 新增 `token` 事件分发 → `handlers.onToken(data)`。
+   - `streamPost` 新增 `onToken` 回调参数。
+   - `startInterview()` 的 onResult 改为 `typeMsg('assistant', d.question)` 打字机渲染（出题为结构化整体返回）；onToken 对 summarize/compress_history 静默（内部处理，不展示）。
+   - `doAnswerStream`：onStage 显示「AI 正在思考…」；onToken → `onAnswerToken`（仅 follow_up 节点真逐 token 追加到流式气泡 `streamingRow`）；onResult 收到 done 时清理流式气泡并 `showReport`（summary 打字机渲染），收到追问时若已有流式气泡则用完整文本覆盖（防 token 遗漏）否则 `typeMsg` 打字机渲染。
+   - 新增 `typeMsg(role, text)` 打字机函数（setInterval 每次 +2 字、25ms，完成后清除定时器、自动滚动到底）；`showReport` 的 summary 用打字机渲染后 `renderReportItems` 渲染错误题项。
+   - 网络中断恢复：`answerError` 不回滚 turn、不删除用户气泡，显示「重试」按钮（`retryAnswer` 用相同 turnId 重发走幂等）。
+【解决了什么】前端实现「真流式 + 打字机」混合流式观感：追问（follow_up）为 LLM 逐 token 真流式逐字出现，出题/终局报告 summary 为整体返回后打字机逐字渐进显示；AI 回复不再「直接蹦完」。summarize/compress_history 等内部处理的 LLM 调用不污染界面。
+【涉及文件】ai-brain/app/llm.py、ai-brain/app/graph.py；backend-java/.../service/InterviewService.java；frontend/index.html、backend-java/src/main/resources/static/index.html；docs/变更记录.txt
+【验证结果】
+- Python 冒烟：fake chat model + 真实 LLM 验证 `on_chat_model_stream` 事件带 stream: tags 产出 token 事件正确（start 链路 summarize 逐 token 推送、answer 链路 follow_up 逐 token 推送）。
+- Java 全链路（curl 带 JWT 实测）：start 请求输出 stage(summarize) → token×108(summarize) → stage(plan_focus) → stage(generate_question) → result(question) → done，事件顺序与内容正确；answer 请求输出 stage×2 → token×80(follow_up) → result(追问 question) → done，正确。
+- 待用户浏览器实测 http://localhost:8080 确认流式体验。
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+变更 #012  日期：2026-08-12
+【修改原因】准备将项目提交到 GitHub，需完善 .gitignore，避免把 IDE 配置、临时调试产物与私有数据提交进仓库（.env 等密钥此前已忽略，且项目尚未 git init，无历史提交风险）。
+【修改内容】更新根目录 .gitignore：
+1) 新增 `# IDE / editor` 分组，忽略 `.idea/`（IntelliJ 项目配置，原先仅靠 .idea/.gitignore 排除 workspace.xml 等，misc.xml/modules.xml/MarsCodeWorkspaceAppSettings.xml 等仍会提交）与 `.trae/`（Trae 调试/临时产物：_f1.txt、_sse_*.json、_rr*.txt 等大量中间文件）。
+2) 新增 `# knowledge base source data (private)` 分组，忽略 `RAG-database/`（Java基础面试题.jsonl 知识库源数据，经用户确认不公开提交）。
+3) 原有规则（.env、target/、__pycache__/、*.pyc、.venv/、venv/、*.log 等）保持不变。
+【解决了什么】GitHub 仓库不包含 IDE 个人配置、调试临时文件与私有题库数据；提交内容收敛为源码 + 文档 + 构建配置，避免仓库臃肿与数据泄露。
+【涉及文件】.gitignore、docs/变更记录.txt
+【验证结果】.gitignore 语法检查通过（分组清晰、模式无冲突）；因项目尚未 git init，待初始化后 `git status` 复查确认 .idea/、.trae/、RAG-database/、.env、target/、__pycache__/ 均不出现在待提交列表。
+----------------------------------------------------------------
